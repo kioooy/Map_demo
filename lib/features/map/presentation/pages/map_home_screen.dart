@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'dart:async';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
@@ -14,21 +15,6 @@ class MapHomeScreen extends ConsumerStatefulWidget {
 
 class _MapHomeScreenState extends ConsumerState<MapHomeScreen> {
   final MapController _mapController = MapController();
-  final TextEditingController _searchController = TextEditingController();
-
-  @override
-  void initState() {
-    super.initState();
-    _searchController.addListener(() {
-      setState(() {});
-    });
-  }
-
-  @override
-  void dispose() {
-    _searchController.dispose();
-    super.dispose();
-  }
 
   void _zoomToUser() {
     final state = ref.read(mapProvider);
@@ -64,13 +50,10 @@ class _MapHomeScreenState extends ConsumerState<MapHomeScreen> {
   Widget build(BuildContext context) {
     final state = ref.watch(mapProvider);
 
-    // Xử lý tự động di chuyển camera đến vị trí người dùng lần đầu và đồng bộ ô tìm kiếm
+    // Xử lý tự động di chuyển camera đến vị trí người dùng lần đầu
     ref.listen<MapState>(mapProvider, (previous, next) {
       if (previous?.userPosition == null && next.userPosition != null) {
         _zoomToUser();
-      }
-      if (previous?.searchQuery != next.searchQuery && next.searchQuery.isEmpty) {
-        _searchController.text = '';
       }
     });
 
@@ -314,9 +297,11 @@ class _MapHomeScreenState extends ConsumerState<MapHomeScreen> {
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                _buildSearchBar(state),
-                const SizedBox(height: 10),
-                _buildCategorySelector(state),
+                MapSearchBar(
+                  state: state,
+                  mapController: _mapController,
+                ),
+
               ],
             ),
           ),
@@ -331,14 +316,6 @@ class _MapHomeScreenState extends ConsumerState<MapHomeScreen> {
                   icon: Icons.layers_outlined,
                   onPressed: ref.read(mapProvider.notifier).toggleMapType,
                   tooltip: 'Đổi loại bản đồ',
-                ),
-                const SizedBox(height: 12),
-                _buildFloatingButton(
-                  icon: Icons.traffic,
-                  color: state.isTrafficEnabled ? Colors.green : Colors.black87,
-                  iconColor: state.isTrafficEnabled ? Colors.white : Colors.black87,
-                  onPressed: ref.read(mapProvider.notifier).toggleTraffic,
-                  tooltip: 'Tình trạng Giao thông',
                 ),
                 const SizedBox(height: 12),
                 _buildFloatingButton(
@@ -417,177 +394,9 @@ class _MapHomeScreenState extends ConsumerState<MapHomeScreen> {
     );
   }
 
-  // Thanh tìm kiếm phía trên cùng bản đồ
-  Widget _buildSearchBar(MapState state) {
-    return Container(
-      decoration: BoxDecoration(
-        color: Colors.white.withAlpha(245),
-        borderRadius: BorderRadius.circular(30),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withAlpha(20),
-            blurRadius: 12,
-            offset: const Offset(0, 4),
-          )
-        ],
-      ),
-      padding: const EdgeInsets.symmetric(horizontal: 16),
-      child: Row(
-        children: [
-          const Icon(Icons.search, color: Colors.grey),
-          const SizedBox(width: 12),
-          Expanded(
-            child: TextField(
-              controller: _searchController,
-              decoration: const InputDecoration(
-                hintText: 'Tìm kiếm địa điểm, địa chỉ...',
-                border: InputBorder.none,
-                hintStyle: TextStyle(color: Colors.grey, fontSize: 14),
-              ),
-              style: const TextStyle(fontSize: 15, color: Colors.black87),
-              onSubmitted: (value) {
-                ref.read(mapProvider.notifier).setSearchQuery(value);
-              },
-              onChanged: (value) {
-                if (value.trim().isEmpty) {
-                  ref.read(mapProvider.notifier).setSearchQuery('');
-                }
-              },
-            ),
-          ),
-          if (_searchController.text.isNotEmpty)
-            IconButton(
-              icon: const Icon(Icons.clear, color: Colors.grey, size: 20),
-              padding: EdgeInsets.zero,
-              constraints: const BoxConstraints(),
-              onPressed: () {
-                _searchController.clear();
-                ref.read(mapProvider.notifier).setSearchQuery('');
-                setState(() {});
-              },
-            ),
-          const SizedBox(width: 8),
-          IconButton(
-            icon: const Icon(Icons.mic, color: Colors.deepPurple, size: 22),
-            padding: EdgeInsets.zero,
-            constraints: const BoxConstraints(),
-            onPressed: () {
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(content: Text('Tính năng tìm kiếm bằng giọng nói giả lập!')),
-              );
-            },
-          ),
-        ],
-      ),
-    );
-  }
 
   // Giao diện chọn danh mục ngang
-  Widget _buildCategorySelector(MapState state) {
-    return Container(
-      height: 52,
-      decoration: BoxDecoration(
-        color: Colors.white.withAlpha(235),
-        borderRadius: BorderRadius.circular(30),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withAlpha(20),
-            blurRadius: 12,
-            offset: const Offset(0, 4),
-          )
-        ],
-      ),
-      padding: const EdgeInsets.symmetric(horizontal: 8),
-      child: ListView(
-        scrollDirection: Axis.horizontal,
-        children: [
-          _buildCategoryChip(
-            category: PlaceCategory.atm,
-            label: 'ATM',
-            icon: Icons.local_atm,
-            isSelected: state.selectedCategory == PlaceCategory.atm,
-          ),
-          _buildCategoryChip(
-            category: PlaceCategory.restaurant,
-            label: 'Ăn uống',
-            icon: Icons.restaurant,
-            isSelected: state.selectedCategory == PlaceCategory.restaurant,
-          ),
-          _buildCategoryChip(
-            category: PlaceCategory.gas,
-            label: 'Trạm xăng',
-            icon: Icons.local_gas_station,
-            isSelected: state.selectedCategory == PlaceCategory.gas,
-          ),
-          _buildCategoryChip(
-            category: PlaceCategory.hospital,
-            label: 'Y tế',
-            icon: Icons.local_hospital,
-            isSelected: state.selectedCategory == PlaceCategory.hospital,
-          ),
-          _buildCategoryChip(
-            category: PlaceCategory.school,
-            label: 'Trường học',
-            icon: Icons.school,
-            isSelected: state.selectedCategory == PlaceCategory.school,
-          ),
-          _buildCategoryChip(
-            category: PlaceCategory.store,
-            label: 'Cửa hàng',
-            icon: Icons.storefront,
-            isSelected: state.selectedCategory == PlaceCategory.store,
-          ),
-          _buildCategoryChip(
-            category: PlaceCategory.publicPlace,
-            label: 'Công viên',
-            icon: Icons.park,
-            isSelected: state.selectedCategory == PlaceCategory.publicPlace,
-          ),
-        ],
-      ),
-    );
-  }
 
-  Widget _buildCategoryChip({
-    required PlaceCategory category,
-    required String label,
-    required IconData icon,
-    required bool isSelected,
-  }) {
-    final activeColor = _getCategoryColor(category);
-
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 4.0, vertical: 6.0),
-      child: RawChip(
-        label: Text(
-          label,
-          style: TextStyle(
-            color: isSelected ? Colors.white : Colors.black87,
-            fontWeight: FontWeight.w600,
-            fontSize: 13,
-          ),
-        ),
-        avatar: Icon(
-          icon,
-          color: isSelected ? Colors.white : activeColor,
-          size: 18,
-        ),
-        backgroundColor: Colors.transparent,
-        selectedColor: activeColor,
-        selected: isSelected,
-        showCheckmark: false,
-        onSelected: (_) {
-          ref.read(mapProvider.notifier).selectCategory(category);
-        },
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(20),
-          side: BorderSide(
-            color: isSelected ? Colors.transparent : Colors.grey.shade300,
-          ),
-        ),
-      ),
-    );
-  }
 
   Color _getCategoryColor(PlaceCategory category) {
     switch (category) {
@@ -712,16 +521,21 @@ class _MapHomeScreenState extends ConsumerState<MapHomeScreen> {
               child: Stack(
                 fit: StackFit.expand,
                 children: [
-                  Image.network(
-                    place.imageUrl,
-                    fit: BoxFit.cover,
-                    errorBuilder: (context, error, stackTrace) {
-                      return Container(
-                        color: Colors.grey.shade200,
-                        child: const Icon(Icons.image_not_supported, color: Colors.grey),
-                      );
-                    },
-                  ),
+                  place.imageUrl.startsWith('assets/')
+                      ? Image.asset(
+                          place.imageUrl,
+                          fit: BoxFit.cover,
+                        )
+                      : Image.network(
+                          place.imageUrl,
+                          fit: BoxFit.cover,
+                          errorBuilder: (context, error, stackTrace) {
+                            return Container(
+                              color: Colors.grey.shade200,
+                              child: const Icon(Icons.image_not_supported, color: Colors.grey),
+                            );
+                          },
+                        ),
                   Container(
                     decoration: const BoxDecoration(
                       gradient: LinearGradient(
@@ -1064,7 +878,8 @@ class _StreetViewDialogState extends State<StreetViewDialog> {
           GestureDetector(
             onHorizontalDragUpdate: (details) {
               setState(() {
-                _scrollPosition = (_scrollPosition - details.delta.dx / 1200) % 1.0;
+                // Tăng độ nhạy bằng cách chia cho 800 thay vì 1200
+                _scrollPosition = (_scrollPosition - details.delta.dx / 800) % 1.0;
               });
             },
             child: Container(
@@ -1079,15 +894,15 @@ class _StreetViewDialogState extends State<StreetViewDialog> {
                       _scrollPosition * 2 - 1,
                       0.0,
                     ),
-                    widthFactor: 3.5, // Kéo dãn ngang rộng gấp 3.5 lần màn hình để tạo cảm giác xoay
+                    widthFactor: 4.0, // Kéo dãn ngang rộng gấp 4 lần màn hình để tạo cảm giác xoay chân thực
                     heightFactor: 1.0,
-                    child: Image.network(
-                      'https://images.unsplash.com/photo-1558244661-d248897f7bc4?q=80&w=2000', // Ảnh panorama đường phố
+                    child: Image.asset(
+                      'assets/street_view_360.jpg', // Ảnh panorama đường phố thực tế dạng equirectangular
                       fit: BoxFit.cover,
                       errorBuilder: (context, error, stackTrace) {
                         return const Center(
                           child: Text(
-                            'Không thể tải ảnh thực tế. Vui lòng kiểm tra Internet.',
+                            'Không thể tải ảnh thực tế từ assets.',
                             style: TextStyle(color: Colors.white70),
                           ),
                         );
@@ -1182,3 +997,319 @@ class _StreetViewDialogState extends State<StreetViewDialog> {
     );
   }
 }
+
+// Widget Search Bar và danh sách gợi ý Autocomplete độc lập giúp giữ vững Compose State gõ tiếng Việt có dấu
+class MapSearchBar extends ConsumerStatefulWidget {
+  final MapState state;
+  final MapController mapController;
+
+  const MapSearchBar({
+    super.key,
+    required this.state,
+    required this.mapController,
+  });
+
+  @override
+  ConsumerState<MapSearchBar> createState() => _MapSearchBarState();
+}
+
+class _MapSearchBarState extends ConsumerState<MapSearchBar> {
+  final TextEditingController _searchController = TextEditingController();
+  Timer? _debounce;
+
+  @override
+  void initState() {
+    super.initState();
+    _searchController.addListener(_onSearchTextChanged);
+  }
+
+  @override
+  void dispose() {
+    _debounce?.cancel();
+    _searchController.removeListener(_onSearchTextChanged);
+    _searchController.dispose();
+    super.dispose();
+  }
+
+  void _onSearchTextChanged() {
+    setState(() {});
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    ref.listen<MapState>(mapProvider, (previous, next) {
+      if (previous?.searchQuery != next.searchQuery && next.searchQuery.isEmpty) {
+        _searchController.removeListener(_onSearchTextChanged);
+        _searchController.clear();
+        _searchController.addListener(_onSearchTextChanged);
+      }
+    });
+
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Container(
+          decoration: BoxDecoration(
+            color: Colors.white.withAlpha(245),
+            borderRadius: BorderRadius.circular(30),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withAlpha(20),
+                blurRadius: 12,
+                offset: const Offset(0, 4),
+              )
+            ],
+          ),
+          padding: const EdgeInsets.symmetric(horizontal: 16),
+          child: Row(
+            children: [
+              const Icon(Icons.search, color: Colors.grey),
+              const SizedBox(width: 12),
+              Expanded(
+                child: TextField(
+                  controller: _searchController,
+                  decoration: const InputDecoration(
+                    hintText: 'Tìm kiếm địa điểm, địa chỉ...',
+                    border: InputBorder.none,
+                    hintStyle: TextStyle(color: Colors.grey, fontSize: 14),
+                  ),
+                  style: const TextStyle(fontSize: 15, color: Colors.black87),
+                  onSubmitted: (value) {
+                    ref.read(mapProvider.notifier).setSearchQuery(value);
+                  },
+                  onChanged: (value) {
+                    if (_debounce?.isActive ?? false) _debounce?.cancel();
+                    _debounce = Timer(const Duration(milliseconds: 300), () {
+                      ref.read(mapProvider.notifier).updateSearchSuggestions(value);
+                    });
+                  },
+                ),
+              ),
+              if (_searchController.text.isNotEmpty)
+                IconButton(
+                  icon: const Icon(Icons.clear, color: Colors.grey, size: 20),
+                  padding: EdgeInsets.zero,
+                  constraints: const BoxConstraints(),
+                  onPressed: () {
+                    _searchController.clear();
+                    ref.read(mapProvider.notifier).setSearchQuery('');
+                  },
+                ),
+              const SizedBox(width: 8),
+              IconButton(
+                icon: const Icon(Icons.mic, color: Colors.deepPurple, size: 22),
+                padding: EdgeInsets.zero,
+                constraints: const BoxConstraints(),
+                onPressed: () {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('Tính năng tìm kiếm bằng giọng nói giả lập!')),
+                  );
+                },
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 10),
+        _buildCategorySelector(widget.state),
+        _buildSuggestionsList(widget.state),
+      ],
+    );
+  }
+
+  Widget _buildCategorySelector(MapState state) {
+    return Container(
+      height: 52,
+      decoration: BoxDecoration(
+        color: Colors.white.withAlpha(235),
+        borderRadius: BorderRadius.circular(30),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withAlpha(20),
+            blurRadius: 12,
+            offset: const Offset(0, 4),
+          )
+        ],
+      ),
+      padding: const EdgeInsets.symmetric(horizontal: 8),
+      child: ListView(
+        scrollDirection: Axis.horizontal,
+        children: [
+          _buildCategoryChip(
+            category: PlaceCategory.atm,
+            label: 'ATM',
+            icon: Icons.local_atm,
+            isSelected: state.selectedCategory == PlaceCategory.atm,
+          ),
+          _buildCategoryChip(
+            category: PlaceCategory.restaurant,
+            label: 'Ăn uống',
+            icon: Icons.restaurant,
+            isSelected: state.selectedCategory == PlaceCategory.restaurant,
+          ),
+          _buildCategoryChip(
+            category: PlaceCategory.gas,
+            label: 'Trạm xăng',
+            icon: Icons.local_gas_station,
+            isSelected: state.selectedCategory == PlaceCategory.gas,
+          ),
+          _buildCategoryChip(
+            category: PlaceCategory.hospital,
+            label: 'Y tế',
+            icon: Icons.local_hospital,
+            isSelected: state.selectedCategory == PlaceCategory.hospital,
+          ),
+          _buildCategoryChip(
+            category: PlaceCategory.school,
+            label: 'Trường học',
+            icon: Icons.school,
+            isSelected: state.selectedCategory == PlaceCategory.school,
+          ),
+          _buildCategoryChip(
+            category: PlaceCategory.store,
+            label: 'Cửa hàng',
+            icon: Icons.storefront,
+            isSelected: state.selectedCategory == PlaceCategory.store,
+          ),
+          _buildCategoryChip(
+            category: PlaceCategory.publicPlace,
+            label: 'Công viên',
+            icon: Icons.park,
+            isSelected: state.selectedCategory == PlaceCategory.publicPlace,
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildCategoryChip({
+    required PlaceCategory category,
+    required String label,
+    required IconData icon,
+    required bool isSelected,
+  }) {
+    final activeColor = _getCategoryColor(category);
+
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 4.0, vertical: 6.0),
+      child: RawChip(
+        label: Text(
+          label,
+          style: TextStyle(
+            color: isSelected ? Colors.white : Colors.black87,
+            fontWeight: FontWeight.w600,
+            fontSize: 13,
+          ),
+        ),
+        avatar: Icon(
+          icon,
+          color: isSelected ? Colors.white : activeColor,
+          size: 18,
+        ),
+        backgroundColor: Colors.transparent,
+        selectedColor: activeColor,
+        selected: isSelected,
+        showCheckmark: false,
+        onSelected: (_) {
+          ref.read(mapProvider.notifier).selectCategory(category);
+        },
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(20),
+          side: BorderSide(
+            color: isSelected ? Colors.transparent : Colors.grey.shade300,
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildSuggestionsList(MapState state) {
+    // 1. Xác định danh sách phần tử cần hiển thị trong dropdown
+    final List<PlaceModel> itemsToShow = state.searchSuggestions.isNotEmpty
+        ? state.searchSuggestions
+        : (state.isCategoryDropdownOpen ? state.places : const []);
+
+    if (itemsToShow.isEmpty) return const SizedBox.shrink();
+
+    return Container(
+      margin: const EdgeInsets.only(top: 8),
+      constraints: const BoxConstraints(maxHeight: 250),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(18),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withAlpha(20),
+            blurRadius: 10,
+            offset: const Offset(0, 4),
+          )
+        ],
+      ),
+      child: ListView.separated(
+        shrinkWrap: true,
+        padding: const EdgeInsets.symmetric(vertical: 8),
+        itemCount: itemsToShow.length,
+        separatorBuilder: (context, index) => const Divider(height: 1, indent: 16, endIndent: 16),
+        itemBuilder: (context, index) {
+          final place = itemsToShow[index];
+          return ListTile(
+            leading: CircleAvatar(
+              backgroundColor: _getCategoryColor(place.category).withAlpha(30),
+              child: Icon(
+                _getCategoryIcon(place.category),
+                color: _getCategoryColor(place.category),
+                size: 18,
+              ),
+            ),
+            title: Text(
+              place.name,
+              style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: Colors.black87),
+            ),
+            subtitle: Text(
+              place.address,
+              style: const TextStyle(fontSize: 12, color: Colors.grey),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
+            trailing: place.distance != null
+                ? Text(
+                    '${place.distance!.toStringAsFixed(1)} km',
+                    style: const TextStyle(fontSize: 11, color: Colors.grey, fontWeight: FontWeight.w500),
+                  )
+                : null,
+            onTap: () {
+              ref.read(mapProvider.notifier).selectPlace(place);
+              _searchController.text = place.name;
+              widget.mapController.move(LatLng(place.latitude, place.longitude), 15.0);
+              FocusScope.of(context).unfocus();
+            },
+          );
+        },
+      ),
+    );
+  }
+
+  Color _getCategoryColor(PlaceCategory category) {
+    switch (category) {
+      case PlaceCategory.atm: return const Color(0xFF1E88E5);
+      case PlaceCategory.restaurant: return const Color(0xFFFB8C00);
+      case PlaceCategory.gas: return const Color(0xFF43A047);
+      case PlaceCategory.hospital: return const Color(0xFFE53935);
+      case PlaceCategory.school: return const Color(0xFF8E24AA);
+      case PlaceCategory.store: return const Color(0xFF00ACC1);
+      case PlaceCategory.publicPlace: return const Color(0xFF7CB342);
+    }
+  }
+
+  IconData _getCategoryIcon(PlaceCategory category) {
+    switch (category) {
+      case PlaceCategory.atm: return Icons.local_atm;
+      case PlaceCategory.restaurant: return Icons.restaurant;
+      case PlaceCategory.gas: return Icons.local_gas_station;
+      case PlaceCategory.hospital: return Icons.local_hospital;
+      case PlaceCategory.school: return Icons.school;
+      case PlaceCategory.store: return Icons.storefront;
+      case PlaceCategory.publicPlace: return Icons.park;
+    }
+  }
+}
+

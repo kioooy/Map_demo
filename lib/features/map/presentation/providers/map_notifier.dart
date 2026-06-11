@@ -70,6 +70,8 @@ class MapState {
 
   // Từ khóa tìm kiếm
   final String searchQuery;
+  final List<PlaceModel> searchSuggestions; // Danh sách gợi ý tìm kiếm
+  final bool isCategoryDropdownOpen; // Có đang mở dropdown danh mục hay không
 
   const MapState({
     this.userPosition,
@@ -89,6 +91,8 @@ class MapState {
     this.yellowTrafficRoads = const [],
     this.busStops = const [],
     this.searchQuery = '',
+    this.searchSuggestions = const [],
+    this.isCategoryDropdownOpen = false,
   });
 
   MapState copyWith({
@@ -109,6 +113,8 @@ class MapState {
     List<List<LatLng>>? yellowTrafficRoads,
     List<LatLng>? busStops,
     String? searchQuery,
+    List<PlaceModel>? searchSuggestions,
+    bool? isCategoryDropdownOpen,
     bool clearSelectedPlace = false,
     bool clearRoute = false,
   }) {
@@ -130,6 +136,8 @@ class MapState {
       yellowTrafficRoads: yellowTrafficRoads ?? this.yellowTrafficRoads,
       busStops: clearRoute ? const [] : (busStops ?? this.busStops),
       searchQuery: searchQuery ?? this.searchQuery,
+      searchSuggestions: searchSuggestions ?? this.searchSuggestions,
+      isCategoryDropdownOpen: isCategoryDropdownOpen ?? this.isCategoryDropdownOpen,
     );
   }
 }
@@ -276,6 +284,8 @@ class MapNotifier extends StateNotifier<MapState> {
       clearSelectedPlace: true,
       clearRoute: true,
       searchQuery: '', // Reset ô tìm kiếm khi chuyển tab
+      searchSuggestions: const [], // Đóng gợi ý
+      isCategoryDropdownOpen: true, // Tự động mở danh sách dropdown các địa điểm lân cận
     );
 
     if (state.userPosition != null) {
@@ -287,6 +297,8 @@ class MapNotifier extends StateNotifier<MapState> {
     state = state.copyWith(
       selectedPlace: place,
       clearRoute: true,
+      searchSuggestions: const [], // Đóng gợi ý
+      isCategoryDropdownOpen: false, // Chọn địa điểm xong thì đóng dropdown danh mục
     );
   }
 
@@ -294,6 +306,7 @@ class MapNotifier extends StateNotifier<MapState> {
     state = state.copyWith(
       clearSelectedPlace: true,
       clearRoute: true,
+      isCategoryDropdownOpen: false, // Đóng dropdown danh mục khi hủy chọn
     );
   }
 
@@ -317,95 +330,135 @@ class MapNotifier extends StateNotifier<MapState> {
     state = state.copyWith(isTrafficEnabled: !state.isTrafficEnabled);
   }
 
-  void changeTravelMode(TravelMode mode) {
+  Future<void> changeTravelMode(TravelMode mode) async {
     state = state.copyWith(selectedTravelMode: mode);
     if (state.selectedPlace != null) {
-      drawRoute(state.selectedPlace!);
+      await drawRoute(state.selectedPlace!);
     }
   }
 
-  void drawRoute(PlaceModel destination) {
+  Future<void> drawRoute(PlaceModel destination) async {
     if (state.userPosition == null) return;
+
+    state = state.copyWith(isLoading: true);
 
     final start = LatLng(state.userPosition!.latitude, state.userPosition!.longitude);
     final end = LatLng(destination.latitude, destination.longitude);
 
-    List<LatLng> routePoints = [];
-    List<LatLng> stops = [];
-    routePoints.add(start);
-
-    int steps = 5;
-    double offsetScale = 0.0003;
-
-    if (state.selectedTravelMode == TravelMode.walking) {
-      steps = 3;
-      offsetScale = 0.0001;
-    } else if (state.selectedTravelMode == TravelMode.transit) {
-      steps = 6;
-      offsetScale = 0.0004;
+    // Xác định profile cho OSRM
+    String profile = 'driving';
+    switch (state.selectedTravelMode) {
+      case TravelMode.driving:
+      case TravelMode.riding:
+      case TravelMode.transit:
+        profile = 'driving';
+        break;
+      case TravelMode.bicycling:
+        profile = 'cycling';
+        break;
+      case TravelMode.walking:
+        profile = 'foot';
+        break;
     }
 
-    for (int i = 1; i < steps; i++) {
-      double ratio = i / steps;
-      double lat = start.latitude + (end.latitude - start.latitude) * ratio;
-      double lng = start.longitude + (end.longitude - start.longitude) * ratio;
-
-      double offsetLat = offsetScale * (i % 2 == 0 ? 1 : -1) * (1 - ratio);
-      double offsetLng = offsetScale * (i % 2 != 0 ? 1 : -1) * ratio;
+    try {
+      final client = HttpClient();
+      client.userAgent = 'google_maps_demo_app/1.0';
       
-      final point = LatLng(lat + offsetLat, lng + offsetLng);
-      routePoints.add(point);
+      // OSRM nhận {start_lng},{start_lat};{end_lng},{end_lat}
+      final url = 'https://router.project-osrm.org/route/v1/$profile/'
+          '${start.longitude},${start.latitude};${end.longitude},${end.latitude}'
+          '?overview=full&geometries=geojson';
+          
+      final request = await client.getUrl(Uri.parse(url));
+      final response = await request.close();
 
-      if (state.selectedTravelMode == TravelMode.transit && (i == 2 || i == 4)) {
-        stops.add(point);
+      if (response.statusCode == 200) {
+        final responseBody = await response.transform(utf8.decoder).join();
+        final data = json.decode(responseBody);
+        
+        final routes = data['routes'] as List;
+        if (routes.isNotEmpty) {
+          final route = routes[0];
+          final geometry = route['geometry'];
+          final coordinates = geometry['coordinates'] as List;
+          
+          List<LatLng> points = coordinates.map((coord) {
+            return LatLng(coord[1] as double, coord[0] as double);
+          }).toList();
+
+          final double distanceInMeters = (route['distance'] as num).toDouble();
+          final double durationInSeconds = (route['duration'] as num).toDouble();
+          
+          final double distanceInKm = distanceInMeters / 1000.0;
+          double durationInMinutes = durationInSeconds / 60.0;
+
+          if (state.selectedTravelMode == TravelMode.riding) {
+            durationInMinutes *= 1.2;
+          } else if (state.selectedTravelMode == TravelMode.transit) {
+            durationInMinutes *= 1.5;
+          }
+
+          String timeEstimate;
+          if (durationInMinutes < 1) {
+            timeEstimate = 'Dưới 1 phút';
+          } else if (durationInMinutes < 60) {
+            timeEstimate = '${durationInMinutes.round()} phút';
+          } else {
+            int hours = (durationInMinutes / 60).floor();
+            int mins = (durationInMinutes % 60).round();
+            timeEstimate = '$hours giờ $mins phút';
+          }
+
+          List<LatLng> stops = [];
+          if (state.selectedTravelMode == TravelMode.transit && points.length > 4) {
+            stops.add(points[points.length ~/ 3]);
+            stops.add(points[(2 * points.length) ~/ 3]);
+            
+            final busNumber = 10 + _random.nextInt(90);
+            timeEstimate = '$timeEstimate (Đón xe buýt số $busNumber)';
+          }
+
+          final updatedDest = destination.copyWith(distance: distanceInKm);
+          final updatedPlaces = state.places.map((p) => p.id == destination.id ? updatedDest : p).toList();
+
+          state = state.copyWith(
+            places: updatedPlaces,
+            selectedPlace: updatedDest,
+            polylinePoints: points,
+            travelTimeEstimate: timeEstimate,
+            busStops: stops,
+            isLoading: false,
+          );
+          return;
+        }
       }
+    } catch (e) {
+      debugPrint('DEBUG: Error getting route from OSRM: $e');
     }
 
-    routePoints.add(end);
-
+    // Fallback vẽ đường thẳng
+    List<LatLng> routePoints = [start, end];
     final distance = destination.distance ?? 0.0;
     double speedKmh = 40.0;
     switch (state.selectedTravelMode) {
-      case TravelMode.driving:
-        speedKmh = 40.0;
-        break;
-      case TravelMode.riding:
-        speedKmh = 30.0;
-        break;
-      case TravelMode.bicycling:
-        speedKmh = 15.0;
-        break;
-      case TravelMode.walking:
-        speedKmh = 5.0;
-        break;
-      case TravelMode.transit:
-        speedKmh = 22.0;
-        break;
+      case TravelMode.driving: speedKmh = 40.0; break;
+      case TravelMode.riding: speedKmh = 30.0; break;
+      case TravelMode.bicycling: speedKmh = 15.0; break;
+      case TravelMode.walking: speedKmh = 5.0; break;
+      case TravelMode.transit: speedKmh = 22.0; break;
     }
-
     double durationHours = distance / speedKmh;
     double durationMinutes = durationHours * 60;
-    
-    String timeEstimate;
-    if (durationMinutes < 1) {
-      timeEstimate = 'Dưới 1 phút';
-    } else if (durationMinutes < 60) {
-      timeEstimate = '${durationMinutes.round()} phút';
-    } else {
-      int hours = (durationMinutes / 60).floor();
-      int mins = (durationMinutes % 60).round();
-      timeEstimate = '$hours giờ $mins phút';
-    }
-
-    if (state.selectedTravelMode == TravelMode.transit) {
-      final busNumber = 10 + _random.nextInt(90);
-      timeEstimate = '$timeEstimate (Đón xe buýt số $busNumber)';
-    }
+    String timeEstimate = durationMinutes < 60 
+        ? '${durationMinutes.round()} phút' 
+        : '${(durationMinutes / 60).floor()} giờ ${(durationMinutes % 60).round()} phút';
 
     state = state.copyWith(
       polylinePoints: routePoints,
-      travelTimeEstimate: timeEstimate,
-      busStops: stops,
+      travelTimeEstimate: '$timeEstimate (Đường thẳng)',
+      busStops: const [],
+      isLoading: false,
     );
   }
 
@@ -414,6 +467,8 @@ class MapNotifier extends StateNotifier<MapState> {
       state = state.copyWith(
         searchQuery: '',
         places: state.unfilteredPlaces,
+        searchSuggestions: const [],
+        isCategoryDropdownOpen: false,
       );
       return;
     }
@@ -477,12 +532,130 @@ class MapNotifier extends StateNotifier<MapState> {
     state = state.copyWith(
       searchQuery: query,
       places: filtered,
+      searchSuggestions: const [], // Đóng gợi ý khi submit search
+      isCategoryDropdownOpen: false, // Đóng gợi ý danh mục khi submit search
     );
 
     // Tự chọn địa điểm đầu tiên tìm thấy
     if (filtered.isNotEmpty) {
       selectPlace(filtered.first);
     }
+  }
+
+  void clearSuggestions() {
+    state = state.copyWith(searchSuggestions: const []);
+  }
+
+  Future<void> updateSearchSuggestions(String query) async {
+    if (query.trim().isEmpty) {
+      state = state.copyWith(searchSuggestions: const []);
+      return;
+    }
+
+    final lowerQuery = query.toLowerCase();
+    
+    // 1. Lọc trong các địa điểm có sẵn
+    final List<PlaceModel> suggestions = state.unfilteredPlaces.where((place) {
+      return place.name.toLowerCase().contains(lowerQuery) ||
+             place.address.toLowerCase().contains(lowerQuery);
+    }).toList();
+
+    // 2. Sinh gợi ý ở các thành phố lớn tại Việt Nam cho từ khóa đặc trưng
+    final isFpt = lowerQuery.contains('fpt');
+    final isUniversity = lowerQuery.contains('đại học') || lowerQuery.contains('dai hoc') || lowerQuery.contains('uni');
+    final isHospital = lowerQuery.contains('bệnh viện') || lowerQuery.contains('benh vien');
+    final isAtm = lowerQuery.contains('atm');
+    final isGas = lowerQuery.contains('xăng') || lowerQuery.contains('xang') || lowerQuery.contains('petrol');
+
+    if (isFpt || isUniversity || isHospital || isAtm || isGas) {
+      String namePattern = 'Đại Học FPT';
+      PlaceCategory category = PlaceCategory.school;
+      String phone = '02873005588';
+      String web = 'www.fpt.edu.vn';
+
+      if (isHospital) {
+        namePattern = 'Bệnh Viện Đa Khoa';
+        category = PlaceCategory.hospital;
+        phone = '19001234';
+        web = 'www.benhvienvietnam.vn';
+      } else if (isAtm) {
+        namePattern = 'ATM Techcombank';
+        category = PlaceCategory.atm;
+        phone = '1800588822';
+        web = 'www.techcombank.com.vn';
+      } else if (isGas) {
+        namePattern = 'Trạm Xăng Petrolimex';
+        category = PlaceCategory.gas;
+        phone = '19002083';
+        web = 'www.petrolimex.com.vn';
+      } else if (isUniversity) {
+        namePattern = 'Đại Học Quốc Gia';
+        category = PlaceCategory.school;
+        phone = '02837242181';
+        web = 'www.vnuhcm.edu.vn';
+      }
+
+      final cities = [
+        {
+          'suffix': 'TP. Hồ Chí Minh',
+          'lat': 10.8411267,
+          'lng': 106.809883,
+          'address': '7 Đ. D1, Tăng Nhơn Phú, Hồ Chí Minh 700000, Việt Nam'
+        },
+        {
+          'suffix': 'Hà Nội',
+          'lat': 21.0135,
+          'lng': 105.5252,
+          'address': 'Khu Công Nghệ Cao Hòa Lạc, Thạch Thất, Hà Nội'
+        },
+        {
+          'suffix': 'Đà Nẵng',
+          'lat': 15.9753,
+          'lng': 108.2524,
+          'address': 'Khu Đô Thị FPT City, Phường Hòa Hải, Quận Ngũ Hành Sơn, Đà Nẵng'
+        },
+        {
+          'suffix': 'Cần Thơ',
+          'lat': 10.0270,
+          'lng': 105.7486,
+          'address': 'Số 600 Đường Nguyễn Văn Cừ Nối Dài, Quận Ninh Kiều, Cần Thơ'
+        },
+      ];
+
+      for (var city in cities) {
+        final cityName = city['suffix'] as String;
+        final name = isFpt ? 'Đại Học FPT $cityName' : '$namePattern $cityName';
+
+        if (!suggestions.any((element) => element.name.toLowerCase() == name.toLowerCase())) {
+          suggestions.add(
+            PlaceModel(
+              id: _uuid.v4(),
+              name: name,
+              latitude: city['lat'] as double,
+              longitude: city['lng'] as double,
+              address: city['address'] as String,
+              category: category,
+              rating: 4.5 + _random.nextDouble() * 0.5,
+              isOpenNow: true,
+              phoneNumber: phone,
+              website: web,
+              openingHours: '08:00 - 17:00 Hằng ngày',
+              imageUrl: isFpt ? 'assets/fpt_university.png' : 'https://picsum.photos/id/101/600/400',
+              distance: state.userPosition != null
+                  ? Geolocator.distanceBetween(
+                        state.userPosition!.latitude,
+                        state.userPosition!.longitude,
+                        city['lat'] as double,
+                        city['lng'] as double,
+                      ) / 1000.0
+                  : null,
+            ),
+          );
+        }
+      }
+    }
+
+    state = state.copyWith(searchSuggestions: suggestions);
   }
 
   void _generateMockTraffic(Position userPos) {
