@@ -1,4 +1,5 @@
 enum PlaceCategory {
+  all,
   atm,
   restaurant,
   gas,

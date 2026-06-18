@@ -107,6 +107,7 @@ class _MapHomeScreenState extends ConsumerState<MapHomeScreen> {
           point: LatLng(place.latitude, place.longitude),
           width: 50,
           height: 50,
+          alignment: Alignment.bottomCenter,
           child: GestureDetector(
             onTap: () {
               ref.read(mapProvider.notifier).selectPlace(place);
@@ -400,6 +401,8 @@ class _MapHomeScreenState extends ConsumerState<MapHomeScreen> {
 
   Color _getCategoryColor(PlaceCategory category) {
     switch (category) {
+      case PlaceCategory.all:
+        return Colors.deepPurple;
       case PlaceCategory.atm:
         return const Color(0xFF1E88E5);
       case PlaceCategory.restaurant:
@@ -419,6 +422,8 @@ class _MapHomeScreenState extends ConsumerState<MapHomeScreen> {
 
   IconData _getCategoryIcon(PlaceCategory category) {
     switch (category) {
+      case PlaceCategory.all:
+        return Icons.grid_view;
       case PlaceCategory.atm:
         return Icons.local_atm;
       case PlaceCategory.restaurant:
@@ -1135,6 +1140,12 @@ class _MapSearchBarState extends ConsumerState<MapSearchBar> {
         scrollDirection: Axis.horizontal,
         children: [
           _buildCategoryChip(
+            category: PlaceCategory.all,
+            label: 'Tất cả',
+            icon: Icons.grid_view,
+            isSelected: state.selectedCategory == PlaceCategory.all,
+          ),
+          _buildCategoryChip(
             category: PlaceCategory.atm,
             label: 'ATM',
             icon: Icons.local_atm,
@@ -1290,6 +1301,7 @@ class _MapSearchBarState extends ConsumerState<MapSearchBar> {
 
   Color _getCategoryColor(PlaceCategory category) {
     switch (category) {
+      case PlaceCategory.all: return Colors.deepPurple;
       case PlaceCategory.atm: return const Color(0xFF1E88E5);
       case PlaceCategory.restaurant: return const Color(0xFFFB8C00);
       case PlaceCategory.gas: return const Color(0xFF43A047);
@@ -1302,6 +1314,7 @@ class _MapSearchBarState extends ConsumerState<MapSearchBar> {
 
   IconData _getCategoryIcon(PlaceCategory category) {
     switch (category) {
+      case PlaceCategory.all: return Icons.grid_view;
       case PlaceCategory.atm: return Icons.local_atm;
       case PlaceCategory.restaurant: return Icons.restaurant;
       case PlaceCategory.gas: return Icons.local_gas_station;

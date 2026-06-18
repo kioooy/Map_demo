@@ -77,7 +77,7 @@ class MapState {
     this.userPosition,
     this.places = const [],
     this.unfilteredPlaces = const [],
-    this.selectedCategory = PlaceCategory.atm,
+    this.selectedCategory = PlaceCategory.all,
     this.selectedPlace,
     this.mapType = AppMapType.normal,
     this.isTrafficEnabled = false,
@@ -721,7 +721,6 @@ class MapNotifier extends StateNotifier<MapState> {
 
   Future<void> _generateMockPlaces(Position userPos, PlaceCategory category) async {
     List<PlaceModel> mockList = [];
-    final names = _getCategoryNames(category);
     final streets = [
       'Nguyễn Trãi',
       'Trần Hưng Đạo',
@@ -738,43 +737,51 @@ class MapNotifier extends StateNotifier<MapState> {
     ];
 
     final addressTail = await _getLocalAddressTail(userPos.latitude, userPos.longitude);
-    final categoryColorName = category.name;
 
-    for (int i = 0; i < names.length; i++) {
-      double offsetLat = (0.003 + _random.nextDouble() * 0.012) * (_random.nextBool() ? 1 : -1);
-      double offsetLng = (0.003 + _random.nextDouble() * 0.012) * (_random.nextBool() ? 1 : -1);
+    final List<PlaceCategory> targetCategories = category == PlaceCategory.all
+        ? PlaceCategory.values.where((c) => c != PlaceCategory.all).toList()
+        : [category];
 
-      double placeLat = userPos.latitude + offsetLat;
-      double placeLng = userPos.longitude + offsetLng;
+    for (var cat in targetCategories) {
+      final names = _getCategoryNames(cat);
+      final categoryColorName = cat.name;
 
-      double distanceInMeters = Geolocator.distanceBetween(
-        userPos.latitude,
-        userPos.longitude,
-        placeLat,
-        placeLng,
-      );
+      for (int i = 0; i < names.length; i++) {
+        double offsetLat = (0.003 + _random.nextDouble() * 0.012) * (_random.nextBool() ? 1 : -1);
+        double offsetLng = (0.003 + _random.nextDouble() * 0.012) * (_random.nextBool() ? 1 : -1);
 
-      final openHour = 7 + _random.nextInt(2);
-      final closeHour = 21 + _random.nextInt(2);
-      final imgId = 10 + _random.nextInt(80);
+        double placeLat = userPos.latitude + offsetLat;
+        double placeLng = userPos.longitude + offsetLng;
 
-      mockList.add(
-        PlaceModel(
-          id: _uuid.v4(),
-          name: names[i],
-          latitude: placeLat,
-          longitude: placeLng,
-          address: 'Số ${10 + _random.nextInt(150)} Đường ${streets[_random.nextInt(streets.length)]}$addressTail',
-          category: category,
-          rating: 3.8 + _random.nextDouble() * 1.2,
-          isOpenNow: _random.nextBool(),
-          phoneNumber: '09${_random.nextInt(90000000) + 10000000}',
-          website: 'www.${categoryColorName}service${i + 1}.vn',
-          openingHours: '0$openHour:00 - $closeHour:00 Hằng ngày',
-          imageUrl: 'https://picsum.photos/id/$imgId/600/400',
-          distance: distanceInMeters / 1000.0,
-        ),
-      );
+        double distanceInMeters = Geolocator.distanceBetween(
+          userPos.latitude,
+          userPos.longitude,
+          placeLat,
+          placeLng,
+        );
+
+        final openHour = 7 + _random.nextInt(2);
+        final closeHour = 21 + _random.nextInt(2);
+        final imgId = 10 + _random.nextInt(80);
+
+        mockList.add(
+          PlaceModel(
+            id: _uuid.v4(),
+            name: names[i],
+            latitude: placeLat,
+            longitude: placeLng,
+            address: 'Số ${10 + _random.nextInt(150)} Đường ${streets[_random.nextInt(streets.length)]}$addressTail',
+            category: cat,
+            rating: 3.8 + _random.nextDouble() * 1.2,
+            isOpenNow: _random.nextBool(),
+            phoneNumber: '09${_random.nextInt(90000000) + 10000000}',
+            website: 'www.${categoryColorName}service${i + 1}.vn',
+            openingHours: '0$openHour:00 - $closeHour:00 Hằng ngày',
+            imageUrl: 'https://picsum.photos/id/$imgId/600/400',
+            distance: distanceInMeters / 1000.0,
+          ),
+        );
+      }
     }
 
     mockList.sort((a, b) => (a.distance ?? 0.0).compareTo(b.distance ?? 0.0));
@@ -787,6 +794,8 @@ class MapNotifier extends StateNotifier<MapState> {
 
   List<String> _getCategoryNames(PlaceCategory category) {
     switch (category) {
+      case PlaceCategory.all:
+        return [];
       case PlaceCategory.atm:
         return [
           'ATM Techcombank Chi Nhánh Trung Tâm',
